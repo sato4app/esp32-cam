@@ -1,6 +1,7 @@
 #include "AppServer.h"
 #include "Camera.h"
 #include "Storage.h"
+#include "Discovery.h"
 #include "config.h"
 #include <Arduino.h>
 #include <WiFi.h>
@@ -94,7 +95,9 @@ static esp_err_t statusHandler(httpd_req_t *req) {
     time_t now = time(nullptr);
     struct tm t;
     localtime_r(&now, &t);
-    strftime(timeText, sizeof(timeText), "%Y-%m-%d %H:%M:%S", &t);
+    // strftime はPSRAM対策で内部RAM（IRAM）に置かれて容量を圧迫するので使わない
+    snprintf(timeText, sizeof(timeText), "%04d-%02d-%02d %02d:%02d:%02d",
+             t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec);
   }
   static const char *TIME_SOURCES[] = {"none", "browser", "ntp"};
 
@@ -104,7 +107,7 @@ static esp_err_t statusHandler(httpd_req_t *req) {
            "\"fps\":%.1f,\"framesize\":%d,\"quality\":%d,\"vflip\":%d,\"hmirror\":%d,\"flash\":%d,"
            "\"psram\":%s,\"sd\":%s,\"sdTotal\":%llu,\"sdUsed\":%llu,"
            "\"mode\":\"%s\",\"ssid\":\"%s\",\"ip\":\"%s\",\"rssi\":%d,"
-           "\"time\":\"%s\",\"timeSource\":\"%s\",\"streamClients\":%d,\"uptime\":%lu,"
+           "\"time\":\"%s\",\"timeSource\":\"%s\",\"streamClients\":%d,\"ble\":%s,\"uptime\":%lu,"
            "\"error\":\"%s\"}",
            Camera::ready() ? "true" : "false", rec.recording ? "true" : "false", rec.fileName,
            (unsigned long)rec.seconds, (unsigned long)rec.files,
@@ -113,7 +116,7 @@ static esp_err_t statusHandler(httpd_req_t *req) {
            Storage::totalBytes(), Storage::usedBytes(),
            ap ? "AP" : "STA", jsonEscape(ap ? WiFi.softAPSSID() : WiFi.SSID()).c_str(),
            (ap ? WiFi.softAPIP() : WiFi.localIP()).toString().c_str(), ap ? 0 : WiFi.RSSI(),
-           timeText, TIME_SOURCES[Storage::timeSource()], streamClients, millis() / 1000,
+           timeText, TIME_SOURCES[Storage::timeSource()], streamClients, Discovery::active() ? "true" : "false", millis() / 1000,
            jsonEscape(Camera::lastError()).c_str());
   return sendJson(req, json);
 }
@@ -230,6 +233,7 @@ static esp_err_t streamHandler(httpd_req_t *req) {
   esp_err_t res = ESP_OK;
   streamClients++;
   Serial.println("映像の配信を開始");
+  Discovery::onViewerConnected(); // 見つけてもらえたので、映像を優先してBluetoothを止める
 
   while (res == ESP_OK) {
     size_t len = Camera::copyLatest(&buf, &cap, &seq, 5000);

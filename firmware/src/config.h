@@ -4,6 +4,15 @@
 // 接続先は secrets.h に書く（secrets.example.h をコピーして作る）
 #define HOSTNAME "esp32cam"             // http://esp32cam.local/ で開ける（mDNS対応端末のみ）
 #define WIFI_CONNECT_TIMEOUT_MS 20000   // この時間内につながらなければアクセスポイントモードにする
+#define WIFI_RETRY_INTERVAL_MS  30000   // アクセスポイントモード中、登録したWi-Fiを探し直す間隔（テザリングを後からONにした場合など）
+
+// ===== Bluetooth（スマホにアドレスを知らせる） =====
+// テザリングはつなぐたびにアドレスが変わるので、Bluetoothで今のアドレスを知らせる。
+// Bluetoothを動かしている間はWi-Fiの省電力を切れず映像が遅くなるため、映像の配信が始まったら止める。
+#define BLE_DISCOVERY 1                 // 0にするとBluetoothを使わない
+#define BLE_NAME "ESP32-CAM"            // スマホの検索画面に出る名前（入口ページの index.html と合わせる）
+#define BLE_SERVICE_UUID   "65cfeafb-2789-4da5-b58f-29f337456ab4"
+#define BLE_INFO_CHAR_UUID "226570ef-9168-409d-9147-c84f40b6e087" // 読み出すとアドレスなどをJSONで返す
 
 // ===== AI Thinker ESP32-CAM のカメラ端子 =====
 #define PWDN_GPIO_NUM     32

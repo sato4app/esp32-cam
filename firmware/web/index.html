@@ -371,6 +371,7 @@
       <dl class="info">
         <dt>接続</dt><dd id="infoWifi">―</dd>
         <dt>アドレス</dt><dd id="infoIp">―</dd>
+        <dt>Bluetooth</dt><dd id="infoBle">―</dd>
         <dt>時刻</dt><dd id="infoTime">―</dd>
         <dt>稼働時間</dt><dd id="infoUptime">―</dd>
       </dl>
@@ -415,7 +416,7 @@
       vflip: $('vflip'), hmirror: $('hmirror'),
       sdMeter: $('sdMeter'), sdText: $('sdText'), fileList: $('fileList'),
       moreFiles: $('moreFiles'), reloadFiles: $('reloadFiles'),
-      infoWifi: $('infoWifi'), infoIp: $('infoIp'), infoTime: $('infoTime'), infoUptime: $('infoUptime'),
+      infoWifi: $('infoWifi'), infoIp: $('infoIp'), infoBle: $('infoBle'), infoTime: $('infoTime'), infoUptime: $('infoUptime'),
       photoDialog: $('photoDialog'), photoImg: $('photoImg'), photoName: $('photoName'),
       photoDl: $('photoDl'), photoClose: $('photoClose'), toast: $('toast')
     };
@@ -714,6 +715,9 @@
         ? `アクセスポイント（${s.ssid}）`
         : `${s.ssid}（電波 ${s.rssi} dBm）`;
       els.infoIp.textContent = `http://${s.ip}/`;
+      els.infoBle.textContent = s.ble
+        ? 'アドレスを通知中（入口ページから探せます）'
+        : '停止（映像を速くするため。再起動すると再開）';
       els.infoTime.textContent = s.time
         ? `${s.time}（${s.timeSource === 'ntp' ? 'NTP' : 'スマホの時刻'}）`
         : '未設定（ファイル名は連番になります）';
