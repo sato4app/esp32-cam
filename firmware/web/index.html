@@ -73,6 +73,8 @@
       color: #e6e9ef;
       font-size: 14px;
       text-align: center;
+      line-height: 1.6;
+      white-space: pre-line;
       padding: 16px;
       background: rgba(0, 0, 0, 0.55);
     }
@@ -490,8 +492,19 @@
       els.viewerMsg.hidden = !text;
     }
 
+    function cameraBroken() {
+      return !!(state && !state.camera);
+    }
+
     function startStream() {
       if (!streamWanted || document.hidden) return;
+      if (cameraBroken()) {
+        // カメラが使えないときは接続を繰り返さず、理由を出しておく
+        stopStream();
+        showViewerMsg(`カメラが使えません。${state.error || ''}
+直したらESP32-CAMのRSTボタンを押してください。`);
+        return;
+      }
       streamStartedAt = Date.now();
       showViewerMsg('映像に接続中…');
       els.stream.src = `${STREAM_URL}?t=${Date.now()}`;
@@ -517,8 +530,12 @@
 
     els.stream.addEventListener('error', () => {
       if (!streamWanted || !els.stream.getAttribute('src')) return;
-      showViewerMsg('映像が切れました。再接続します…');
       stopStream();
+      if (cameraBroken()) {
+        startStream(); // 理由の表示だけ行う
+        return;
+      }
+      showViewerMsg('映像が切れました。再接続します…');
       setTimeout(startStream, 2000);
     });
 
@@ -719,6 +736,7 @@
         const s = await api('/api/status', { timeout: 6000 });
         const wasOnline = online;
         const wasRecording = state && state.recording;
+        const wasBroken = cameraBroken();
         state = s;
         online = true;
         recBaseSec = s.recSec;
@@ -729,7 +747,7 @@
         }
         if (s.error && s.error !== lastError) toast(s.error, true);
         lastError = s.error;
-        if (!wasOnline) {
+        if (!wasOnline || wasBroken !== cameraBroken()) {
           startStream();
           loadFiles();
         } else if (wasRecording && !s.recording) {

@@ -215,6 +215,11 @@ static esp_err_t snapshotHandler(httpd_req_t *req) {
 // ===== ポート81: ライブ映像 =====
 
 static esp_err_t streamHandler(httpd_req_t *req) {
+  if (!Camera::ready()) {
+    httpd_resp_set_status(req, "503 Service Unavailable");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    return httpd_resp_sendstr(req, "camera not ready");
+  }
   httpd_resp_set_type(req, "multipart/x-mixed-replace;boundary=" STREAM_BOUNDARY);
   httpd_resp_set_hdr(req, "Cache-Control", "no-store");
   httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");

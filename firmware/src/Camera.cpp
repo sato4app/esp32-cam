@@ -7,6 +7,7 @@
 
 #define REC_MAX_FILE_BYTES (1000ULL * 1024 * 1024) // AVI 1ファイルの上限（古い再生ソフト向けに1GB未満にする）
 #define COMMAND_TIMEOUT_MS 8000
+#define CAMERA_INIT_RETRIES 3
 
 namespace Camera {
 
@@ -299,6 +300,22 @@ static bool framesizeAllowed(int size) {
   return false;
 }
 
+static String initErrorText(esp_err_t err) {
+  char code[16];
+  snprintf(code, sizeof(code), "0x%x", err);
+  switch (err) {
+    case ESP_ERR_CAMERA_NOT_DETECTED:
+    case ESP_ERR_NOT_FOUND:
+      return String("カメラが見つかりません（") + code + "）。カメラのフラットケーブルがコネクタの奥まで差さり、黒いロックが閉じているか確認してください";
+    case ESP_ERR_CAMERA_NOT_SUPPORTED:
+      return String("対応していないカメラです（") + code + "）";
+    case ESP_ERR_NO_MEM:
+      return String("カメラ用のメモリが足りません（") + code + "）。PSRAM付きの基板か確認してください";
+    default:
+      return String("カメラの初期化に失敗しました（") + code + "）";
+  }
+}
+
 bool begin() {
   commandMutex = xSemaphoreCreateMutex();
   commandDone = xSemaphoreCreateBinary();
@@ -353,14 +370,30 @@ bool begin() {
     config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
   }
 
-  esp_err_t err = esp_camera_init(&config);
+  // 電源投入直後はカメラが応答しないことがあるので、電源を入れ直して数回試す
+  esp_err_t err = ESP_FAIL;
+  for (int attempt = 1; attempt <= CAMERA_INIT_RETRIES; attempt++) {
+    err = esp_camera_init(&config);
+    if (err == ESP_OK) {
+      break;
+    }
+    Serial.printf("カメラの初期化に失敗（%d/%d回目）: 0x%x\n", attempt, CAMERA_INIT_RETRIES, err);
+    // 失敗時の後片付けは esp_camera_init の中で済んでいる
+    pinMode(PWDN_GPIO_NUM, OUTPUT);
+    digitalWrite(PWDN_GPIO_NUM, HIGH); // カメラの電源を切る
+    delay(200);
+    digitalWrite(PWDN_GPIO_NUM, LOW);
+    delay(300);
+  }
   if (err != ESP_OK) {
-    Serial.printf("カメラの初期化に失敗しました: 0x%x（ケーブルの差し込みを確認してください）\n", err);
-    setError("カメラの初期化に失敗しました");
+    String reason = initErrorText(err);
+    Serial.println(reason);
+    setError(reason);
     return false;
   }
 
   sensor_t *s = esp_camera_sensor_get();
+  Serial.printf("カメラ: センサーID 0x%02X（OV2640は 0x26）\n", s->id.PID);
   s->set_framesize(s, (framesize_t)current.framesize);
   s->set_quality(s, current.quality);
   s->set_vflip(s, current.vflip);
