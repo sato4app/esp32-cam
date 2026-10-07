@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#0b3d91">
+  <meta name="description" content="ESP32-CAMの映像をスマホで見て、microSDに写真・動画を保存する">
+  <title>ESP32-CAM</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='4' y='16' width='56' height='40' rx='8' fill='%230b3d91'/%3E%3Crect x='22' y='8' width='20' height='12' rx='3' fill='%230b3d91'/%3E%3Ccircle cx='32' cy='36' r='13' fill='%23fff'/%3E%3Ccircle cx='32' cy='36' r='8' fill='%230b3d91'/%3E%3C/svg%3E">
+  <style>
+    :root {
+      --theme: #0b3d91;
+      --bg: #f4f6fa;
+      --card: #fff;
+      --fg: #1b1f24;
+      --sub: #5b6472;
+      --border: #c9d2e3;
+      --ok: #1a7f37;
+      --error: #c62828;
+      --rec: #d32f2f;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+    header {
+      background: var(--theme);
+      color: #fff;
+      padding: calc(12px + env(safe-area-inset-top)) 16px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    header h1 { font-size: 18px; margin: 0; }
+    #status {
+      font-size: 13px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.18);
+      white-space: nowrap;
+    }
+    #status.connected { background: var(--ok); }
+    #status.recording { background: var(--rec); }
+    #status.error { background: var(--error); }
+    main { padding: 16px; max-width: 720px; margin: 0 auto; }
+
+    /* ===== 映像 ===== */
+    #viewer {
+      position: relative;
+      background: #000;
+      border-radius: 12px;
+      overflow: hidden;
+      aspect-ratio: 4 / 3;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #viewer:fullscreen { border-radius: 0; aspect-ratio: auto; }
+    #stream { width: 100%; height: 100%; object-fit: contain; display: block; }
+    #viewerMsg {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      color: #e6e9ef;
+      font-size: 14px;
+      text-align: center;
+      padding: 16px;
+      background: rgba(0, 0, 0, 0.55);
+    }
+    #viewerMsg[hidden] { display: none; }
+    .badge {
+      position: absolute;
+      top: 10px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
+      color: #fff;
+      background: rgba(0, 0, 0, 0.5);
+      pointer-events: none;
+    }
+    #recBadge { left: 10px; background: var(--rec); }
+    #recBadge::before { content: "●"; margin-right: 6px; animation: blink 1s steps(1) infinite; }
+    @keyframes blink { 50% { opacity: 0; } }
+    #fpsBadge { right: 10px; }
+    .viewerBtns {
+      position: absolute;
+      right: 10px;
+      bottom: 10px;
+      display: flex;
+      gap: 8px;
+    }
+    .iconBtn {
+      min-width: 40px;
+      min-height: 40px;
+      border: 0;
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.5);
+      color: #fff;
+      font-size: 14px;
+      padding: 0 12px;
+      cursor: pointer;
+    }
+    #shutterFx {
+      position: absolute;
+      inset: 0;
+      background: #fff;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s;
+    }
+    #shutterFx.on { opacity: 0.8; transition: none; }
+
+    /* ===== 撮影ボタン ===== */
+    .shootBar {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: 12px;
+      margin: 16px 0;
+    }
+    .sideBtn {
+      min-height: 52px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--card);
+      color: var(--fg);
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 6px 8px;
+      text-decoration: none;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+    }
+    .sideBtn small { font-weight: 400; color: var(--sub); font-size: 11px; }
+    #recBtn {
+      width: 76px;
+      height: 76px;
+      border-radius: 50%;
+      border: 4px solid var(--rec);
+      background: var(--card);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+    }
+    #recBtn span {
+      display: block;
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      background: var(--rec);
+      transition: all 0.2s;
+    }
+    #recBtn.recording span { width: 28px; height: 28px; border-radius: 6px; }
+    .recLabel { text-align: center; font-size: 12px; color: var(--sub); margin-top: 4px; }
+    button:disabled, .sideBtn.disabled { opacity: 0.45; cursor: default; pointer-events: none; }
+
+    /* ===== カード ===== */
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px 16px;
+      margin-bottom: 16px;
+    }
+    .card h2 {
+      font-size: 15px;
+      margin: 0 0 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .field {
+      display: grid;
+      grid-template-columns: 7em 1fr auto;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      font-size: 14px;
+    }
+    .field:last-child { margin-bottom: 0; }
+    .field output { min-width: 3em; text-align: right; font-variant-numeric: tabular-nums; color: var(--sub); }
+    select, input[type="range"] { width: 100%; }
+    select {
+      font-size: 15px;
+      padding: 8px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--fg);
+    }
+    .switch { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+    .switch input { width: 20px; height: 20px; }
+    .smallBtn {
+      font-size: 13px;
+      padding: 6px 12px;
+      min-height: 34px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--fg);
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+    }
+    .smallBtn.danger { color: var(--error); border-color: #e7b4b4; }
+    .note { font-size: 12px; color: var(--sub); margin: 8px 0 0; line-height: 1.5; }
+
+    /* ===== microSD ===== */
+    .meter { height: 8px; border-radius: 999px; background: #e3e8f1; overflow: hidden; margin: 4px 0 6px; }
+    .meter span { display: block; height: 100%; background: var(--theme); width: 0; }
+    .meter.full span { background: var(--error); }
+    #sdText { font-size: 13px; color: var(--sub); }
+    #fileList { list-style: none; margin: 12px 0 0; padding: 0; }
+    #fileList li {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 0;
+      border-top: 1px solid #e3e8f1;
+    }
+    .fileIcon { font-size: 22px; width: 28px; text-align: center; }
+    .fileInfo { flex: 1; min-width: 0; }
+    .fileName { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .fileMeta { font-size: 12px; color: var(--sub); }
+    .fileBtns { display: flex; gap: 6px; }
+    #moreFiles { width: 100%; margin-top: 8px; justify-content: center; }
+
+    dl.info { display: grid; grid-template-columns: 7em 1fr; gap: 6px 8px; margin: 0; font-size: 14px; }
+    dl.info dt { color: var(--sub); }
+    dl.info dd { margin: 0; word-break: break-all; }
+
+    /* ===== 写真ビューア ===== */
+    #photoDialog {
+      border: 0;
+      padding: 0;
+      background: #000;
+      width: 100vw;
+      height: 100vh;
+      max-width: 100vw;
+      max-height: 100vh;
+    }
+    #photoDialog::backdrop { background: #000; }
+    .photoWrap { position: absolute; inset: 0; display: flex; flex-direction: column; }
+    .photoWrap img { flex: 1; min-height: 0; width: 100%; object-fit: contain; }
+    .photoBar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+      color: #fff;
+      font-size: 13px;
+    }
+    .photoBar span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    #toast {
+      position: fixed;
+      left: 50%;
+      bottom: calc(16px + env(safe-area-inset-bottom));
+      transform: translateX(-50%);
+      max-width: calc(100% - 32px);
+      padding: 10px 16px;
+      border-radius: 8px;
+      background: rgba(27, 31, 36, 0.92);
+      color: #fff;
+      font-size: 14px;
+      z-index: 10;
+    }
+    #toast.error { background: var(--error); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>ESP32-CAM</h1>
+    <span id="status">接続確認中…</span>
+  </header>
+
+  <main>
+    <div id="viewer">
+      <img id="stream" alt="カメラの映像">
+      <div id="shutterFx"></div>
+      <div id="viewerMsg"><span id="viewerMsgText">映像に接続中…</span></div>
+      <div id="recBadge" class="badge" hidden>REC 00:00</div>
+      <div id="fpsBadge" class="badge" hidden></div>
+      <div class="viewerBtns">
+        <button id="pauseBtn" class="iconBtn" type="button">一時停止</button>
+        <button id="fullBtn" class="iconBtn" type="button" aria-label="全画面">⛶</button>
+      </div>
+    </div>
+
+    <div class="shootBar">
+      <button id="photoBtn" class="sideBtn" type="button">📷 撮影<small>microSDに保存</small></button>
+      <div>
+        <button id="recBtn" type="button" aria-label="録画"><span></span></button>
+        <div id="recLabel" class="recLabel">録画</div>
+      </div>
+      <a id="snapBtn" class="sideBtn" href="/api/snapshot" download>📱 静止画<small>スマホに保存</small></a>
+    </div>
+
+    <section class="card">
+      <h2>ライト</h2>
+      <div class="field">
+        <label for="flash">明るさ</label>
+        <input id="flash" type="range" min="0" max="100" step="5" value="0">
+        <output id="flashOut">0%</output>
+      </div>
+      <p class="note">基板のフラッシュLEDです。明るくすると熱くなるので、長時間の点灯は控えめに。</p>
+    </section>
+
+    <section class="card">
+      <h2>カメラ設定</h2>
+      <div class="field">
+        <label for="framesize">解像度</label>
+        <select id="framesize">
+          <option value="5">QVGA 320×240</option>
+          <option value="8">VGA 640×480</option>
+          <option value="9">SVGA 800×600</option>
+          <option value="10">XGA 1024×768</option>
+          <option value="11">HD 1280×720</option>
+          <option value="12">SXGA 1280×1024</option>
+          <option value="13">UXGA 1600×1200</option>
+        </select>
+        <span></span>
+      </div>
+      <div class="field">
+        <label for="quality">画質</label>
+        <input id="quality" type="range" min="10" max="40" step="1" value="12">
+        <output id="qualityOut">12</output>
+      </div>
+      <div class="field">
+        <span>向き</span>
+        <div style="display:flex; gap:16px; flex-wrap:wrap;">
+          <label class="switch"><input id="vflip" type="checkbox">上下反転</label>
+          <label class="switch"><input id="hmirror" type="checkbox">左右反転</label>
+        </div>
+        <span></span>
+      </div>
+      <p class="note">画質は数字が小さいほどきれいでファイルが大きくなります。解像度を上げるとコマ数が減ります。録画中は解像度を変えられません。</p>
+    </section>
+
+    <section class="card">
+      <h2>microSDカード <button id="reloadFiles" class="smallBtn" type="button">更新</button></h2>
+      <div class="meter" id="sdMeter"><span></span></div>
+      <div id="sdText">―</div>
+      <ul id="fileList"></ul>
+      <button id="moreFiles" class="smallBtn" type="button" hidden>もっと見る</button>
+      <p class="note">動画（.avi / MJPEG）はスマホのブラウザでは再生できないため、ダウンロードしてVLCなどのアプリで再生してください。録画は10分ごとに別ファイルに分かれます。</p>
+    </section>
+
+    <section class="card">
+      <h2>接続情報</h2>
+      <dl class="info">
+        <dt>接続</dt><dd id="infoWifi">―</dd>
+        <dt>アドレス</dt><dd id="infoIp">―</dd>
+        <dt>時刻</dt><dd id="infoTime">―</dd>
+        <dt>稼働時間</dt><dd id="infoUptime">―</dd>
+      </dl>
+    </section>
+  </main>
+
+  <dialog id="photoDialog">
+    <div class="photoWrap">
+      <img id="photoImg" alt="">
+      <div class="photoBar">
+        <span id="photoName"></span>
+        <a id="photoDl" class="smallBtn" href="#">ダウンロード</a>
+        <button id="photoClose" class="smallBtn" type="button">閉じる</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div id="toast" hidden></div>
+
+  <script>
+    'use strict';
+
+    const host = location.hostname;
+    const STREAM_URL = `http://${host}:81/stream`;
+    const FILE_BASE = `http://${host}:82/sd/`;
+    const POLL_MS = 2000;
+    const FILES_PAGE = 30;
+    const FRAMESIZE_LABEL = {
+      5: '320×240', 8: '640×480', 9: '800×600', 10: '1024×768',
+      11: '1280×720', 12: '1280×1024', 13: '1600×1200'
+    };
+
+    const $ = (id) => document.getElementById(id);
+    const els = {
+      status: $('status'), viewer: $('viewer'), stream: $('stream'),
+      viewerMsg: $('viewerMsg'), viewerMsgText: $('viewerMsgText'),
+      recBadge: $('recBadge'), fpsBadge: $('fpsBadge'), shutterFx: $('shutterFx'),
+      pauseBtn: $('pauseBtn'), fullBtn: $('fullBtn'),
+      photoBtn: $('photoBtn'), recBtn: $('recBtn'), recLabel: $('recLabel'), snapBtn: $('snapBtn'),
+      flash: $('flash'), flashOut: $('flashOut'),
+      framesize: $('framesize'), quality: $('quality'), qualityOut: $('qualityOut'),
+      vflip: $('vflip'), hmirror: $('hmirror'),
+      sdMeter: $('sdMeter'), sdText: $('sdText'), fileList: $('fileList'),
+      moreFiles: $('moreFiles'), reloadFiles: $('reloadFiles'),
+      infoWifi: $('infoWifi'), infoIp: $('infoIp'), infoTime: $('infoTime'), infoUptime: $('infoUptime'),
+      photoDialog: $('photoDialog'), photoImg: $('photoImg'), photoName: $('photoName'),
+      photoDl: $('photoDl'), photoClose: $('photoClose'), toast: $('toast')
+    };
+
+    let state = null;          // 最後に受け取った /api/status
+    let online = false;
+    let streamWanted = true;   // 一時停止ボタンで止めていないか
+    let streamStartedAt = 0;
+    let recBaseSec = 0;        // 録画秒数（状態を受け取った時点）
+    let recBaseAt = 0;
+    let files = [];
+    let filesShown = FILES_PAGE;
+    let busy = false;          // 撮影・録画の操作中
+
+    // ===== 共通 =====
+
+    let toastTimer;
+    function toast(message, isError = false) {
+      els.toast.textContent = message;
+      els.toast.classList.toggle('error', isError);
+      els.toast.hidden = false;
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => { els.toast.hidden = true; }, isError ? 5000 : 2500);
+    }
+
+    async function api(path, { method = 'GET', timeout = 10000 } = {}) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), timeout);
+      try {
+        const res = await fetch(path, { method, signal: ctrl.signal, cache: 'no-store' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.ok === false) {
+          throw new Error(data.message || `通信エラー（${res.status}）`);
+        }
+        return data;
+      } catch (e) {
+        throw e.name === 'AbortError' ? new Error('ESP32-CAMから応答がありません') : e;
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    function fmtBytes(n) {
+      if (n >= 1024 ** 3) return (n / 1024 ** 3).toFixed(1) + 'GB';
+      if (n >= 1024 ** 2) return (n / 1024 ** 2).toFixed(1) + 'MB';
+      if (n >= 1024) return Math.round(n / 1024) + 'KB';
+      return n + 'B';
+    }
+
+    function fmtDuration(sec) {
+      const h = Math.floor(sec / 3600);
+      const m = Math.floor(sec / 60) % 60;
+      const s = sec % 60;
+      const mmss = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+      return h > 0 ? `${h}:${mmss}` : mmss;
+    }
+
+    // ファイル名（IMG_20261007_123456.jpg）から日時を読み取る
+    function fileDate(name) {
+      const m = name.match(/_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})/);
+      return m ? `${m[1]}/${m[2]}/${m[3]} ${m[4]}:${m[5]}:${m[6]}` : '';
+    }
+
+    function phoneFileName() {
+      const d = new Date();
+      const p = (n) => String(n).padStart(2, '0');
+      return `ESP32CAM_${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.jpg`;
+    }
+
+    // ===== 映像 =====
+
+    function showViewerMsg(text) {
+      els.viewerMsgText.textContent = text;
+      els.viewerMsg.hidden = !text;
+    }
+
+    function startStream() {
+      if (!streamWanted || document.hidden) return;
+      streamStartedAt = Date.now();
+      showViewerMsg('映像に接続中…');
+      els.stream.src = `${STREAM_URL}?t=${Date.now()}`;
+    }
+
+    function stopStream() {
+      // src を外すと接続が切れ、ESP32側の配信枠が空く
+      els.stream.removeAttribute('src');
+    }
+
+    // MJPEGは1コマ目の到着をイベントで知れないので、画像の大きさが決まったかで判断する
+    function watchStream() {
+      if (!streamWanted) return;
+      if (!els.stream.getAttribute('src')) return;
+      if (els.stream.naturalWidth > 0) {
+        if (!els.viewerMsg.hidden) showViewerMsg('');
+        const ratio = els.stream.naturalWidth / els.stream.naturalHeight;
+        if (!document.fullscreenElement) els.viewer.style.aspectRatio = String(ratio);
+      } else if (Date.now() - streamStartedAt > 6000) {
+        showViewerMsg('映像が届きません。他の端末で映像を開いていると表示できません（同時に見られるのは1台）。');
+      }
+    }
+
+    els.stream.addEventListener('error', () => {
+      if (!streamWanted || !els.stream.getAttribute('src')) return;
+      showViewerMsg('映像が切れました。再接続します…');
+      stopStream();
+      setTimeout(startStream, 2000);
+    });
+
+    els.pauseBtn.addEventListener('click', () => {
+      streamWanted = !streamWanted;
+      els.pauseBtn.textContent = streamWanted ? '一時停止' : '再開';
+      if (streamWanted) {
+        startStream();
+      } else {
+        stopStream();
+        showViewerMsg('映像を一時停止しています');
+      }
+    });
+
+    els.fullBtn.addEventListener('click', async () => {
+      try {
+        if (document.fullscreenElement) {
+          await document.exitFullscreen();
+        } else {
+          await els.viewer.requestFullscreen();
+          if (screen.orientation && screen.orientation.lock) {
+            screen.orientation.lock('landscape').catch(() => {});
+          }
+        }
+      } catch (e) {
+        toast('全画面にできません', true);
+      }
+    });
+
+    // 画面を離れたら配信を止め、戻ったら再開する（同時に見られるのは1台のため）
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        stopStream();
+      } else {
+        startStream();
+        poll();
+      }
+    });
+
+    // ===== 撮影・録画 =====
+
+    els.photoBtn.addEventListener('click', async () => {
+      if (busy) return;
+      busy = true;
+      els.photoBtn.disabled = true;
+      try {
+        const res = await api('/api/photo', { method: 'POST' });
+        els.shutterFx.classList.add('on');
+        requestAnimationFrame(() => requestAnimationFrame(() => els.shutterFx.classList.remove('on')));
+        toast(`保存しました: ${res.message}`);
+        loadFiles();
+      } catch (e) {
+        toast(e.message, true);
+      } finally {
+        busy = false;
+        els.photoBtn.disabled = false;
+      }
+    });
+
+    els.recBtn.addEventListener('click', async () => {
+      if (busy || !state) return;
+      busy = true;
+      els.recBtn.disabled = true;
+      const start = !state.recording;
+      try {
+        const res = await api(`/api/record?action=${start ? 'start' : 'stop'}`, { method: 'POST' });
+        toast(start ? `録画を開始しました: ${res.message}` : '録画を停止しました');
+        await poll();
+        loadFiles();
+      } catch (e) {
+        toast(e.message, true);
+      } finally {
+        busy = false;
+        els.recBtn.disabled = false;
+      }
+    });
+
+    els.snapBtn.addEventListener('click', () => {
+      els.snapBtn.download = phoneFileName();
+    });
+
+    // ===== ライト・設定 =====
+
+    let flashTimer;
+    els.flash.addEventListener('input', () => {
+      els.flashOut.textContent = `${els.flash.value}%`;
+      clearTimeout(flashTimer);
+      flashTimer = setTimeout(() => {
+        api(`/api/flash?val=${els.flash.value}`, { method: 'POST' }).catch((e) => toast(e.message, true));
+      }, 150);
+    });
+
+    async function setControl(variable, value) {
+      try {
+        await api(`/api/control?var=${variable}&val=${value}`, { method: 'POST' });
+        if (variable === 'framesize') {
+          toast(`解像度を ${FRAMESIZE_LABEL[value]} にしました`);
+          els.viewer.style.aspectRatio = '';
+        }
+      } catch (e) {
+        toast(e.message, true);
+      }
+      poll();
+    }
+
+    els.framesize.addEventListener('change', () => setControl('framesize', els.framesize.value));
+    els.quality.addEventListener('input', () => { els.qualityOut.textContent = els.quality.value; });
+    els.quality.addEventListener('change', () => setControl('quality', els.quality.value));
+    els.vflip.addEventListener('change', () => setControl('vflip', els.vflip.checked ? 1 : 0));
+    els.hmirror.addEventListener('change', () => setControl('hmirror', els.hmirror.checked ? 1 : 0));
+
+    // ===== 状態の表示 =====
+
+    function setStatusChip(text, cls) {
+      els.status.textContent = text;
+      els.status.className = cls || '';
+    }
+
+    function render() {
+      if (!online || !state) {
+        setStatusChip('未接続', 'error');
+        els.photoBtn.disabled = true;
+        els.recBtn.disabled = true;
+        els.snapBtn.classList.add('disabled');
+        return;
+      }
+      const s = state;
+      if (!s.camera) {
+        setStatusChip('カメラ異常', 'error');
+      } else if (s.recording) {
+        setStatusChip('録画中', 'recording');
+      } else {
+        setStatusChip('接続中', 'connected');
+      }
+
+      const canSave = s.camera && s.sd;
+      els.photoBtn.disabled = busy || !canSave;
+      els.recBtn.disabled = busy || !canSave;
+      els.snapBtn.classList.toggle('disabled', !s.camera);
+      els.recBtn.classList.toggle('recording', s.recording);
+      els.recBtn.setAttribute('aria-label', s.recording ? '録画停止' : '録画開始');
+      els.recLabel.textContent = s.recording ? '停止' : '録画';
+      els.recBadge.hidden = !s.recording;
+      els.fpsBadge.hidden = !s.camera;
+      els.fpsBadge.textContent = `${s.fps.toFixed(1)} fps`;
+      renderRecTime();
+
+      // 操作中の項目は上書きしない
+      if (document.activeElement !== els.framesize) els.framesize.value = String(s.framesize);
+      if (document.activeElement !== els.quality) {
+        els.quality.value = s.quality;
+        els.qualityOut.textContent = s.quality;
+      }
+      els.vflip.checked = !!s.vflip;
+      els.hmirror.checked = !!s.hmirror;
+      if (document.activeElement !== els.flash) {
+        els.flash.value = s.flash;
+        els.flashOut.textContent = `${s.flash}%`;
+      }
+      els.framesize.disabled = s.recording || !s.camera;
+      for (const opt of els.framesize.options) {
+        opt.disabled = !s.psram && Number(opt.value) > 9;
+      }
+
+      if (s.sd) {
+        const ratio = s.sdTotal ? s.sdUsed / s.sdTotal : 0;
+        els.sdMeter.querySelector('span').style.width = `${(ratio * 100).toFixed(1)}%`;
+        els.sdMeter.classList.toggle('full', ratio > 0.95);
+        els.sdText.textContent = `使用 ${fmtBytes(s.sdUsed)} / ${fmtBytes(s.sdTotal)}（空き ${fmtBytes(s.sdTotal - s.sdUsed)}）`;
+      } else {
+        els.sdMeter.querySelector('span').style.width = '0';
+        els.sdText.textContent = 'microSDカードが見つかりません（FAT32でフォーマットしたカードを入れてください）';
+      }
+
+      els.infoWifi.textContent = s.mode === 'AP'
+        ? `アクセスポイント（${s.ssid}）`
+        : `${s.ssid}（電波 ${s.rssi} dBm）`;
+      els.infoIp.textContent = `http://${s.ip}/`;
+      els.infoTime.textContent = s.time
+        ? `${s.time}（${s.timeSource === 'ntp' ? 'NTP' : 'スマホの時刻'}）`
+        : '未設定（ファイル名は連番になります）';
+      els.infoUptime.textContent = fmtDuration(s.uptime);
+    }
+
+    function renderRecTime() {
+      if (!state || !state.recording) return;
+      const sec = recBaseSec + Math.floor((Date.now() - recBaseAt) / 1000);
+      const part = state.recFiles > 1 ? `（${state.recFiles}本目）` : '';
+      els.recBadge.textContent = `REC ${fmtDuration(sec)}${part}`;
+    }
+
+    let polling = false;
+    let lastError = '';
+    async function poll() {
+      if (polling) return;
+      polling = true;
+      try {
+        const s = await api('/api/status', { timeout: 6000 });
+        const wasOnline = online;
+        const wasRecording = state && state.recording;
+        state = s;
+        online = true;
+        recBaseSec = s.recSec;
+        recBaseAt = Date.now();
+        // ESP32-CAMは時計を持たないので、スマホの時刻を渡してファイル名に使う（NTPで合わせた場合はそちらが優先）
+        if (s.timeSource === 'none') {
+          api(`/api/time?epoch=${Math.floor(Date.now() / 1000)}`, { method: 'POST' }).catch(() => {});
+        }
+        if (s.error && s.error !== lastError) toast(s.error, true);
+        lastError = s.error;
+        if (!wasOnline) {
+          startStream();
+          loadFiles();
+        } else if (wasRecording && !s.recording) {
+          loadFiles(); // 録画が自動で止まった
+        }
+      } catch (e) {
+        online = false;
+      } finally {
+        polling = false;
+        render();
+      }
+    }
+
+    // ===== microSDのファイル =====
+
+    async function loadFiles() {
+      try {
+        const res = await api('/api/files');
+        files = res.files;
+        renderFiles();
+      } catch (e) {
+        toast(`ファイル一覧を取得できません: ${e.message}`, true);
+      }
+    }
+
+    function renderFiles() {
+      els.fileList.replaceChildren();
+      if (files.length === 0) {
+        const li = document.createElement('li');
+        li.textContent = '保存したファイルはありません';
+        li.className = 'fileMeta';
+        els.fileList.append(li);
+      }
+      for (const f of files.slice(0, filesShown)) {
+        const isVideo = f.name.toLowerCase().endsWith('.avi');
+        const recordingNow = state && state.recording && state.recName === f.name;
+        const li = document.createElement('li');
+
+        const icon = document.createElement('span');
+        icon.className = 'fileIcon';
+        icon.textContent = isVideo ? '🎬' : '📷';
+
+        const info = document.createElement('div');
+        info.className = 'fileInfo';
+        const name = document.createElement('div');
+        name.className = 'fileName';
+        name.textContent = f.name;
+        const meta = document.createElement('div');
+        meta.className = 'fileMeta';
+        meta.textContent = recordingNow ? '録画中' : [fileDate(f.name), fmtBytes(f.size)].filter(Boolean).join('　');
+        info.append(name, meta);
+
+        const btns = document.createElement('div');
+        btns.className = 'fileBtns';
+        if (!recordingNow) {
+          if (isVideo) {
+            const dl = document.createElement('a');
+            dl.className = 'smallBtn';
+            dl.textContent = '保存';
+            dl.href = `${FILE_BASE}${f.name}?dl=1`;
+            btns.append(dl);
+          } else {
+            const view = document.createElement('button');
+            view.type = 'button';
+            view.className = 'smallBtn';
+            view.textContent = '表示';
+            view.addEventListener('click', () => openPhoto(f.name));
+            btns.append(view);
+          }
+          const del = document.createElement('button');
+          del.type = 'button';
+          del.className = 'smallBtn danger';
+          del.textContent = '削除';
+          del.addEventListener('click', () => deleteFile(f.name));
+          btns.append(del);
+        }
+
+        li.append(icon, info, btns);
+        els.fileList.append(li);
+      }
+      els.moreFiles.hidden = files.length <= filesShown;
+    }
+
+    async function deleteFile(name) {
+      if (!confirm(`${name} を削除しますか？\n元に戻せません。`)) return;
+      try {
+        await api(`/api/delete?name=${encodeURIComponent(name)}`, { method: 'POST' });
+        toast('削除しました');
+        loadFiles();
+        poll();
+      } catch (e) {
+        toast(e.message, true);
+      }
+    }
+
+    function openPhoto(name) {
+      els.photoImg.src = FILE_BASE + name;
+      els.photoName.textContent = name;
+      els.photoDl.href = `${FILE_BASE}${name}?dl=1`;
+      els.photoDialog.showModal();
+    }
+
+    els.photoClose.addEventListener('click', () => els.photoDialog.close());
+    els.photoDialog.addEventListener('close', () => els.photoImg.removeAttribute('src'));
+    els.reloadFiles.addEventListener('click', () => { filesShown = FILES_PAGE; loadFiles(); });
+    els.moreFiles.addEventListener('click', () => { filesShown += FILES_PAGE; renderFiles(); });
+
+    // ===== 起動 =====
+
+    poll();
+    setInterval(poll, POLL_MS);
+    setInterval(() => { renderRecTime(); watchStream(); }, 500);
+  </script>
+</body>
+</html>
