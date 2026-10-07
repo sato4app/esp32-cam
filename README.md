@@ -6,6 +6,8 @@ ESP32-CAMの映像をWi-Fi経由でスマホのブラウザに表示し、写真
 映像はデータ量が多くBluetooth（BLE）では送れないため、Wi-Fiで送る。
 Bluetoothは、テザリングでつなぐたびに変わるアドレスをスマホに知らせるためだけに使う（入口ページ）。
 
+使い方と注意点の詳しい説明は [docs/使い方.md](docs/使い方.md) にまとめている。
+
 ## できること
 
 | 機能 | 内容 |
@@ -39,6 +41,7 @@ manifest.json                    入口ページのPWA設定
 service-worker.js                入口ページのオフライン起動用キャッシュ制御
 icons/                           PWAアイコン（192x192 / 512x512。元データは icon.svg）
 esp32-cam-stream.code-workspace  VS Code 用（リポジトリと firmware を同時に開く）
+docs/使い方.md                   使い方と注意点
 firmware/                        ESP32-CAMのファーム（PlatformIOプロジェクト）
   platformio.ini                 ボード・ビルド設定
   web/index.html                 スマホ用の画面（ビルド時にファームへ埋め込む）
