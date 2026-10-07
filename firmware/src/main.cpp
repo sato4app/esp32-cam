@@ -8,19 +8,28 @@
 #include "Storage.h"
 #include "AppServer.h"
 #include "Discovery.h"
+#include "WifiStore.h"
 
 #if __has_include("secrets.h")
 #include "secrets.h"
 #else
-#warning "secrets.h がありません。secrets.example.h をコピーして作ってください（今はアクセスポイントモードで起動します）"
-#include "secrets.example.h"
+#error "secrets.h がありません。secrets.example.h を secrets.h という名前でコピーし、暗証番号とパスワードを書いてください"
 #endif
 
-WiFiMulti wifiMulti;
-int wifiCount = 0;               // secrets.h に登録した接続先の数
+#if BLE_DISCOVERY
+#ifndef BLE_PASSKEY
+#error "secrets.h に BLE_PASSKEY（Bluetoothのペアリングに使う6桁の暗証番号）を追加してください。secrets.example.h を参照"
+#endif
+static_assert(BLE_PASSKEY >= 100000 && BLE_PASSKEY <= 999999,
+              "BLE_PASSKEY は6桁の数字にしてください（先頭を0にしない）");
+#endif
+
+WiFiMulti *wifiMulti = nullptr;
+int wifiCount = 0;               // 登録している接続先の数（Bluetoothで保存したもの＋secrets.h）
 bool stationMode = false;        // true: Wi-Fiにつながっている / false: アクセスポイントモード
 wl_status_t lastWifiStatus = WL_IDLE_STATUS;
 unsigned long lastRetryMs = 0;
+unsigned long wifiLostMs = 0;    // Wi-Fiが切れた時刻（つながっている間は0）
 IPAddress announcedIp;           // Bluetoothで最後に知らせたアドレス
 bool announcedStation = false;
 
@@ -81,7 +90,7 @@ void onStationConnected() {
 }
 
 void startAccessPoint() {
-  Serial.println("Wi-Fiにつながらないため、アクセスポイントモードで起動します");
+  Serial.println("Wi-Fiにつながらないため、アクセスポイントモードにします");
   stationMode = false;
   WiFi.disconnect(true);
   WiFi.mode(WIFI_AP);
@@ -94,7 +103,7 @@ void startAccessPoint() {
 void retryStation() {
   Serial.println("登録したWi-Fiを探しています…");
   WiFi.mode(WIFI_AP_STA);
-  if (wifiMulti.run(8000) == WL_CONNECTED) {
+  if (wifiMulti->run(8000) == WL_CONNECTED) {
     WiFi.softAPdisconnect(true);
     WiFi.mode(WIFI_STA);
     onStationConnected();
@@ -107,25 +116,38 @@ void retryStation() {
   lastRetryMs = millis();
 }
 
-// secrets.h の接続先に順に試し、つながらなければ自分がアクセスポイントになる
+// 接続先の一覧を作り直す（Bluetoothで保存したもの＋secrets.h の WIFI_LIST）。
+// 見つかった中で電波の強いものにつなぐ
+void rebuildWifiList() {
+  delete wifiMulti;
+  wifiMulti = new WiFiMulti();
+  wifiCount = 0;
+  for (const WifiStore::Network &net : WifiStore::load()) {
+    wifiMulti->addAP(net.ssid.c_str(), net.password.c_str());
+    wifiCount++;
+  }
+  for (auto &entry : WIFI_LIST) {
+    if (entry[0] && entry[0][0] != '\0' && strcmp(entry[0], "your-ssid") != 0) {
+      wifiMulti->addAP(entry[0], entry[1]);
+      wifiCount++;
+    }
+  }
+  Serial.printf("登録している接続先: %d件\n", wifiCount);
+}
+
+// 登録した接続先に順に試し、つながらなければ自分がアクセスポイントになる
 void startWifi() {
   WiFi.mode(WIFI_STA);
   WiFi.setHostname(HOSTNAME);
   sntp_set_time_sync_notification_cb(onTimeSynced);
-
-  for (auto &entry : WIFI_LIST) {
-    if (strcmp(entry[0], "your-ssid") != 0) {
-      wifiMulti.addAP(entry[0], entry[1]);
-      wifiCount++;
-    }
-  }
+  rebuildWifiList();
 
   bool connected = false;
   if (wifiCount > 0) {
     Serial.print("Wi-Fiに接続中");
     unsigned long start = millis();
     while (millis() - start < WIFI_CONNECT_TIMEOUT_MS) {
-      if (wifiMulti.run(5000) == WL_CONNECTED) {
+      if (wifiMulti->run(5000) == WL_CONNECTED) {
         connected = true;
         break;
       }
@@ -157,6 +179,9 @@ void setup() {
     Serial.println("カメラなしで起動を続けます（画面でエラーを確認できます）");
   }
 
+#if BLE_DISCOVERY
+  Discovery::setPasskey(BLE_PASSKEY);
+#endif
   startWifi();
   AppServer::begin();
   announceIfChanged();
@@ -166,6 +191,14 @@ void setup() {
 void loop() {
   Discovery::loop();
 
+  // Bluetoothで接続先が追加・削除された
+  if (Discovery::consumeWifiChanged()) {
+    rebuildWifiList();
+    if (!stationMode && wifiCount > 0) {
+      retryStation(); // すぐに新しい接続先を試す
+    }
+  }
+
   if (stationMode) {
     // Wi-Fiの切断・再接続をシリアルに知らせる（再接続はWi-Fiライブラリが自動で行う）。
     // テザリングを入れ直すとアドレスが変わることがあるので、つながったらBluetoothで知らせ直す
@@ -173,12 +206,22 @@ void loop() {
     if (status != lastWifiStatus) {
       lastWifiStatus = status;
       if (status == WL_CONNECTED) {
+        wifiLostMs = 0;
         Serial.println("Wi-Fiに再接続しました");
         announceIfChanged();
         printAccessInfo();
-      } else {
+      } else if (wifiLostMs == 0) {
+        wifiLostMs = millis();
         Serial.println("Wi-Fiが切断されました。再接続を待っています");
       }
+    }
+    // テザリングを切ったままなど、しばらく戻らなければアクセスポイントモードにする
+    // （その後も30秒ごとに登録した接続先を探す）
+    if (wifiLostMs != 0 && millis() - wifiLostMs >= WIFI_LOST_TO_AP_MS) {
+      wifiLostMs = 0;
+      startAccessPoint();
+      announceIfChanged();
+      printAccessInfo();
     }
   } else if (wifiCount > 0 && WiFi.softAPgetStationNum() == 0 &&
              millis() - lastRetryMs >= WIFI_RETRY_INTERVAL_MS) {

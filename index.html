@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" content="#0b3d91">
-  <meta name="description" content="ESP32-CAMをBluetoothで探して、カメラの画面を開く">
+  <meta name="description" content="ESP32-CAMをBluetoothで探して、カメラの画面を開く・Wi-Fiの接続先を登録する">
   <title>ESP32-CAM</title>
 
   <!-- PWA（GitHub Pagesのプロジェクトページでも動くよう相対パス） -->
@@ -65,24 +65,40 @@
     button:disabled { opacity: 0.5; cursor: default; }
     .primary { background: var(--theme); border-color: var(--theme); color: #fff; font-weight: 600; width: 100%; }
     .wide { width: 100%; }
-    #result { margin-top: 12px; font-size: 14px; line-height: 1.6; }
-    #result:empty { display: none; }
-    #result.ok { color: var(--ok); }
-    #result.warn { color: var(--warn); }
-    #result.error { color: var(--error); }
-    #result a { color: inherit; font-weight: 600; word-break: break-all; }
+    .small { font-size: 14px; min-height: 36px; padding: 6px 12px; }
+    .danger { color: var(--error); border-color: #e7b4b4; }
+    .msg { margin-top: 12px; font-size: 14px; line-height: 1.6; }
+    .msg:empty { display: none; }
+    .msg.ok { color: var(--ok); }
+    .msg.warn { color: var(--warn); }
+    .msg.error { color: var(--error); }
+    .msg a { color: inherit; font-weight: 600; word-break: break-all; }
     .row { display: flex; gap: 8px; }
-    .row input {
+    input[type="text"], input[type="password"] {
       flex: 1;
       min-width: 0;
+      width: 100%;
       font-size: 16px;
       padding: 10px 12px;
       border: 1px solid var(--border);
       border-radius: 10px;
     }
+    .field { margin-bottom: 12px; }
+    .field label { display: block; font-size: 14px; margin-bottom: 4px; }
+    .check { display: flex; align-items: center; gap: 6px; font-size: 14px; margin-top: 6px; }
     .sub { font-size: 13px; color: var(--sub); line-height: 1.6; margin: 8px 0 0; }
     ol.sub, ul.sub { padding-left: 1.4em; }
-    #lastCard[hidden] { display: none; }
+    [hidden] { display: none !important; }
+    #savedList { list-style: none; margin: 12px 0 0; padding: 0; }
+    #savedList li {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 0;
+      border-top: 1px solid #e3e8f1;
+      font-size: 14px;
+    }
+    #savedList li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   </style>
 </head>
 <body>
@@ -94,7 +110,7 @@
     <section class="card">
       <h2>カメラを開く</h2>
       <button id="findBtn" class="primary" type="button">Bluetoothで探して開く</button>
-      <div id="result"></div>
+      <div id="findMsg" class="msg"></div>
       <p class="sub">
         ESP32-CAMがBluetoothで今のアドレスを知らせるので、テザリングでアドレスが変わっても開けます。
         一覧に「ESP32-CAM」が出たら選んでください。
@@ -105,6 +121,31 @@
       <h2>前回のアドレス</h2>
       <a id="lastLink" class="btn wide" href="#"></a>
       <p class="sub">同じWi-Fi（テザリング）につなぎ直していなければ、そのまま開けます。</p>
+    </section>
+
+    <section class="card">
+      <h2>Wi-Fiの接続先を登録</h2>
+      <form id="wifiForm">
+        <div class="field">
+          <label for="ssid">Wi-Fi名（SSID）</label>
+          <input id="ssid" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="例: Pixel_1234">
+        </div>
+        <div class="field">
+          <label for="password">パスワード</label>
+          <input id="password" type="password" autocomplete="off" autocapitalize="off" spellcheck="false">
+          <label class="check"><input id="showPassword" type="checkbox">パスワードを表示</label>
+        </div>
+        <button id="sendBtn" class="primary" type="submit">ESP32-CAMに送る</button>
+      </form>
+      <div id="wifiMsg" class="msg"></div>
+      <button id="listBtn" class="wide small" type="button" style="margin-top:12px">登録済みの接続先を見る</button>
+      <ul id="savedList" hidden></ul>
+      <ul class="sub">
+        <li>ESP32-CAMの<strong>電源を入れてから5分以内</strong>に送ってください（それ以外は受け付けません）</li>
+        <li>初めて送るときは、スマホに「ペアリング」の画面が出ます。secrets.h に書いた<strong>6桁の暗証番号</strong>を入力してください</li>
+        <li>テザリングは「互換性を拡張」をONにしてください（ESP32-CAMは2.4GHzにしかつながりません）</li>
+        <li>登録は5件まで。超えると最も古いものが消えます</li>
+      </ul>
     </section>
 
     <section class="card">
@@ -126,6 +167,7 @@
         <li>ESP32-CAMは映像を一度表示するとBluetoothを止めます（映像を速くするため）。もう一度探すには、ESP32-CAMのRSTボタンを押すか電源を入れ直す</li>
         <li>テザリング（アクセスポイント）の設定で「互換性を拡張」をONにする（ESP32-CAMは2.4GHzにしかつながらない）。セキュリティは「WPA2-Personal」にする</li>
         <li>テザリングを後からONにした場合、ESP32-CAMがつながるまで30秒〜1分ほどかかる</li>
+        <li>ペアリングに失敗し続ける場合は、スマホのBluetooth設定で「ESP32-CAM」を削除（登録を解除）してからやり直す</li>
       </ul>
     </section>
   </main>
@@ -137,16 +179,26 @@
     const BLE_NAME = 'ESP32-CAM';
     const SERVICE_UUID = '65cfeafb-2789-4da5-b58f-29f337456ab4';
     const INFO_CHAR_UUID = '226570ef-9168-409d-9147-c84f40b6e087';
+    const WIFI_CHAR_UUID = 'f07241dd-9ed4-4847-b3fd-83871a65d4e5';
+    const RESULT_CHAR_UUID = 'ff87d3b4-3849-4a26-be1e-9aa77e4412be';
     const LAST_URL_KEY = 'esp32cam.lastUrl';
+    const PAIRING_TIMEOUT_MS = 60000;  // ペアリング画面で暗証番号を入力するのを待つ時間
+    const CONNECT_WAIT_MS = 45000;     // 送った接続先にESP32-CAMがつながるのを待つ時間
 
-    const findBtn = document.getElementById('findBtn');
-    const result = document.getElementById('result');
-    const lastCard = document.getElementById('lastCard');
-    const lastLink = document.getElementById('lastLink');
+    const $ = (id) => document.getElementById(id);
+    const findBtn = $('findBtn');
+    const findMsg = $('findMsg');
+    const wifiMsg = $('wifiMsg');
+    const sendBtn = $('sendBtn');
+    const listBtn = $('listBtn');
+    const savedList = $('savedList');
 
-    function showResult(cls, ...nodes) {
-      result.className = cls;
-      result.replaceChildren(...nodes);
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    // 文字列とリンクを混ぜてメッセージを出す（文字列は textContent として扱う）
+    function showMsg(el, cls, ...parts) {
+      el.className = `msg ${cls}`;
+      el.replaceChildren(...parts.map((p) => (typeof p === 'string' ? document.createTextNode(p) : p)));
     }
 
     function link(url) {
@@ -155,6 +207,8 @@
       a.textContent = url;
       return a;
     }
+
+    // ===== 前回のアドレス =====
 
     function loadLastUrl() {
       try {
@@ -175,71 +229,262 @@
 
     function showLastUrl() {
       const url = loadLastUrl();
-      lastCard.hidden = !url;
+      $('lastCard').hidden = !url;
       if (url) {
-        lastLink.href = url;
-        lastLink.textContent = `${url} を開く`;
+        $('lastLink').href = url;
+        $('lastLink').textContent = `${url} を開く`;
       }
     }
 
-    async function readInfo() {
-      const device = await navigator.bluetooth.requestDevice({
+    // ===== Bluetooth =====
+
+    let device = null; // 最後に選んだESP32-CAM（Wi-Fiの登録中は選び直さずに使う）
+
+    function checkBluetooth(el) {
+      if (navigator.bluetooth) return true;
+      showMsg(el, 'error', 'このブラウザはBluetoothに対応していません。AndroidのChromeで開いてください。');
+      return false;
+    }
+
+    async function chooseDevice() {
+      device = await navigator.bluetooth.requestDevice({
         filters: [{ name: BLE_NAME }],
         optionalServices: [SERVICE_UUID]
       });
-      showResult('', document.createTextNode(`${device.name || BLE_NAME} に接続中…`));
-      const server = await device.gatt.connect();
-      try {
-        const service = await server.getPrimaryService(SERVICE_UUID);
-        const characteristic = await service.getCharacteristic(INFO_CHAR_UUID);
-        const value = await characteristic.readValue();
-        return JSON.parse(new TextDecoder().decode(value));
-      } finally {
-        device.gatt.disconnect();
+      return device;
+    }
+
+    async function getService() {
+      if (!device.gatt.connected) {
+        await device.gatt.connect();
+      }
+      return device.gatt.getPrimaryService(SERVICE_UUID);
+    }
+
+    async function readJson(service, uuid) {
+      const characteristic = await service.getCharacteristic(uuid);
+      const value = await characteristic.readValue();
+      return JSON.parse(new TextDecoder().decode(value));
+    }
+
+    async function readInfo() {
+      return readJson(await getService(), INFO_CHAR_UUID);
+    }
+
+    // Wi-Fiの設定コマンドを送り、結果を受け取る。
+    // 初回はペアリングが必要で、暗証番号を入力し終わるまで書き込みが失敗するので、つながり直しながら繰り返す
+    async function sendCommand(text, el) {
+      const data = new TextEncoder().encode(text);
+      const deadline = Date.now() + PAIRING_TIMEOUT_MS;
+      for (;;) {
+        try {
+          const service = await getService();
+          const characteristic = await service.getCharacteristic(WIFI_CHAR_UUID);
+          await characteristic.writeValueWithResponse(data);
+          return await readJson(service, RESULT_CHAR_UUID);
+        } catch (e) {
+          if (Date.now() > deadline) {
+            throw new Error('ペアリングできませんでした。暗証番号を確かめて、もう一度送ってください');
+          }
+          showMsg(el, 'warn', 'ペアリング中です。スマホに出た画面で6桁の暗証番号を入力してください…');
+          await sleep(3000);
+        }
       }
     }
 
+    function errorText(e) {
+      return e.name === 'NotFoundError' ? 'キャンセルしました。' : `失敗しました: ${e.message}`;
+    }
+
+    // ===== カメラを開く =====
+
     findBtn.addEventListener('click', async () => {
-      if (!navigator.bluetooth) {
-        showResult('error', document.createTextNode(
-          'このブラウザはBluetoothに対応していません。AndroidのChromeで開いてください。'));
-        return;
-      }
+      if (!checkBluetooth(findMsg)) return;
       findBtn.disabled = true;
       try {
+        await chooseDevice();
+        showMsg(findMsg, '', `${device.name || BLE_NAME} に接続中…`);
         const info = await readInfo();
+        device.gatt.disconnect();
         if (info.mode === 'AP') {
           // 登録したWi-Fiにつながっておらず、ESP32-CAM自身がアクセスポイントになっている
-          showResult('warn',
-            document.createTextNode(
-              `ESP32-CAMは登録したWi-Fiにつながっていません（アクセスポイントモード）。` +
-              `テザリングをONにして30秒〜1分待ってから、もう一度探してください。` +
-              `または、スマホのWi-Fiを「${info.ssid}」につないでから `),
-            link(info.url),
-            document.createTextNode(' を開いてください。'));
+          showMsg(findMsg, 'warn',
+            'ESP32-CAMはWi-Fiにつながっていません（アクセスポイントモード）。' +
+            'テザリングをONにして30秒〜1分待ってから、もう一度探してください。' +
+            '接続先を登録していない場合は、下の「Wi-Fiの接続先を登録」から登録してください。' +
+            `または、スマホのWi-Fiを「${info.ssid}」につないでから `, link(info.url), ' を開いてください。');
           return;
         }
         saveLastUrl(info.url);
-        showResult('ok',
-          document.createTextNode(`見つかりました（${info.ssid} に接続中）。開いています… `),
-          link(info.url));
+        showMsg(findMsg, 'ok', `見つかりました（${info.ssid} に接続中）。開いています… `, link(info.url));
         location.href = info.url;
       } catch (e) {
-        if (e.name === 'NotFoundError') {
-          showResult('', document.createTextNode('キャンセルしました。'));
-        } else {
-          showResult('error', document.createTextNode(`読み取れませんでした: ${e.message}`));
-        }
+        showMsg(findMsg, e.name === 'NotFoundError' ? '' : 'error', errorText(e));
       } finally {
         findBtn.disabled = false;
       }
     });
 
-    document.getElementById('manualForm').addEventListener('submit', (e) => {
+    // ===== Wi-Fiの接続先を登録 =====
+
+    $('showPassword').addEventListener('change', (e) => {
+      $('password').type = e.target.checked ? 'text' : 'password';
+    });
+
+    function setWifiBusy(busy) {
+      sendBtn.disabled = busy;
+      listBtn.disabled = busy;
+      for (const btn of savedList.querySelectorAll('button')) btn.disabled = busy;
+    }
+
+    // 登録の操作を始める前に、ESP32-CAMを選んで受付時間内か確かめる
+    async function prepareSetup() {
+      if (!device) await chooseDevice();
+      showMsg(wifiMsg, '', `${device.name || BLE_NAME} に接続中…`);
+      try {
+        return await readInfo();
+      } catch (e) {
+        // 前に選んだESP32-CAMが再起動していると接続できないので、選び直す
+        await chooseDevice();
+        return await readInfo();
+      }
+    }
+
+    function renderSaved(saved) {
+      savedList.hidden = false;
+      savedList.replaceChildren();
+      if (saved.length === 0) {
+        const li = document.createElement('li');
+        li.textContent = '登録済みの接続先はありません';
+        savedList.append(li);
+        return;
+      }
+      for (const ssid of saved) {
+        const li = document.createElement('li');
+        const name = document.createElement('span');
+        name.textContent = ssid;
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'small danger';
+        del.textContent = '削除';
+        del.addEventListener('click', () => deleteNetwork(ssid));
+        li.append(name, del);
+        savedList.append(li);
+      }
+    }
+
+    // 送った接続先にESP32-CAMがつながるのを待つ
+    async function waitForConnection(ssid) {
+      const deadline = Date.now() + CONNECT_WAIT_MS;
+      let info = null;
+      while (Date.now() < deadline) {
+        await sleep(3000);
+        try {
+          info = await readInfo();
+        } catch (e) {
+          continue; // Wi-Fiの切り替え中はBluetoothが一時的に切れることがある
+        }
+        if (info.mode === 'STA') break;
+      }
+      return info;
+    }
+
+    $('wifiForm').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const ip = document.getElementById('manualIp').value.trim();
+      if (!checkBluetooth(wifiMsg)) return;
+      const ssid = $('ssid').value;
+      const password = $('password').value;
+      const ssidBytes = new TextEncoder().encode(ssid).length;
+      if (ssid.trim() === '' || ssidBytes > 32 || /[\x00-\x1f]/.test(ssid)) {
+        showMsg(wifiMsg, 'error', 'Wi-Fi名（SSID）を入力してください（32バイトまで）。');
+        return;
+      }
+      if ((password.length > 0 && password.length < 8) || password.length > 63 || /[\x00-\x1f]/.test(password)) {
+        showMsg(wifiMsg, 'error', 'パスワードは8〜63文字で入力してください。');
+        return;
+      }
+
+      setWifiBusy(true);
+      try {
+        const before = await prepareSetup();
+        if (!before.setup) {
+          showMsg(wifiMsg, 'error', '受付時間外です。ESP32-CAMの電源を入れ直してから5分以内に送ってください。');
+          return;
+        }
+        const res = await sendCommand(`ADD\n${ssid}\n${password}`, wifiMsg);
+        if (!res.ok) {
+          showMsg(wifiMsg, 'error', res.message);
+          return;
+        }
+        $('password').value = '';
+        renderSaved(res.saved);
+
+        if (before.mode === 'STA') {
+          // すでに別のWi-Fiにつながっているときは切り替えない
+          showMsg(wifiMsg, 'ok',
+            `「${ssid}」を保存しました。今は「${before.ssid}」につながっているので、` +
+            '切り替わるのはESP32-CAMを再起動したときです。');
+          return;
+        }
+        showMsg(wifiMsg, 'ok', `「${ssid}」を保存しました。ESP32-CAMがつながるのを待っています…`);
+        const info = await waitForConnection(ssid);
+        if (info && info.mode === 'STA') {
+          saveLastUrl(info.url);
+          showMsg(wifiMsg, 'ok', `「${info.ssid}」につながりました。 `, link(info.url), ' を開いてください。');
+        } else {
+          showMsg(wifiMsg, 'warn',
+            `「${ssid}」は保存しましたが、まだつながりません。` +
+            'テザリングがONか、「互換性を拡張」がONか、パスワードが正しいかを確かめてください。' +
+            'ESP32-CAMは30秒ごとにつなぎ直しを試します。');
+        }
+      } catch (err) {
+        showMsg(wifiMsg, err.name === 'NotFoundError' ? '' : 'error', errorText(err));
+      } finally {
+        setWifiBusy(false);
+      }
+    });
+
+    listBtn.addEventListener('click', async () => {
+      if (!checkBluetooth(wifiMsg)) return;
+      setWifiBusy(true);
+      try {
+        await prepareSetup();
+        const res = await sendCommand('LIST', wifiMsg);
+        renderSaved(res.saved);
+        showMsg(wifiMsg, '', '');
+      } catch (err) {
+        showMsg(wifiMsg, err.name === 'NotFoundError' ? '' : 'error', errorText(err));
+      } finally {
+        setWifiBusy(false);
+      }
+    });
+
+    async function deleteNetwork(ssid) {
+      if (!confirm(`「${ssid}」を削除しますか？`)) return;
+      setWifiBusy(true);
+      try {
+        const info = await prepareSetup();
+        if (!info.setup) {
+          showMsg(wifiMsg, 'error', '受付時間外です。ESP32-CAMの電源を入れ直してから5分以内に操作してください。');
+          return;
+        }
+        const res = await sendCommand(`DEL\n${ssid}`, wifiMsg);
+        renderSaved(res.saved);
+        showMsg(wifiMsg, res.ok ? 'ok' : 'error', res.message);
+      } catch (err) {
+        showMsg(wifiMsg, err.name === 'NotFoundError' ? '' : 'error', errorText(err));
+      } finally {
+        setWifiBusy(false);
+      }
+    }
+
+    // ===== アドレスを入力して開く =====
+
+    $('manualForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const ip = $('manualIp').value.trim();
       if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) {
-        showResult('error', document.createTextNode('アドレスは 10.20.30.40 のような数字4つで入力してください。'));
+        showMsg(findMsg, 'error', 'アドレスは 10.20.30.40 のような数字4つで入力してください。');
         return;
       }
       const url = `http://${ip}/`;
