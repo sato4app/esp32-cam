@@ -1,4 +1,4 @@
-## esp32-cam-stream - ESP32-CAMの映像をスマホに表示
+## esp32-cam - ESP32-CAMの映像をスマホに表示
 
 ESP32-CAMの映像をWi-Fi経由でスマホのブラウザに表示し、写真・動画をmicroSDカードに保存するアプリ。
 スマホ用の画面はESP32-CAM自身が配信するため、スマホにアプリを入れる必要はない。
@@ -42,7 +42,7 @@ index.html                       入口ページ（GitHub Pages。BluetoothでES
 manifest.json                    入口ページのPWA設定
 service-worker.js                入口ページのオフライン起動用キャッシュ制御
 icons/                           PWAアイコン（192x192 / 512x512。元データは icon.svg）
-esp32-cam-stream.code-workspace  VS Code 用（リポジトリと firmware を同時に開く）
+esp32-cam.code-workspace         VS Code 用（リポジトリと firmware を同時に開く）
 docs/使い方.md                   使い方と注意点
 firmware/                        ESP32-CAMのファーム（PlatformIOプロジェクト）
   platformio.ini                 ボード・ビルド設定
@@ -87,7 +87,7 @@ Wi-Fiの接続先は、入口ページから送ったもの（本体に最大5�
 ### 2. 書き込み
 
 1. ESP32-CAMをESP32-CAM-MBに差し、USBケーブルでPCにつなぐ
-2. VS Codeで `esp32-cam-stream.code-workspace` を開き、PlatformIOでビルド・書き込みする
+2. VS Codeで `esp32-cam.code-workspace` を開き、PlatformIOでビルド・書き込みする
 
 CLIの場合:
 
@@ -121,7 +121,7 @@ Wi-Fi接続: 家のルーター（電波 -52 dBm）
 Wi-Fiの接続先も、入口ページからBluetoothで送って登録する。
 
 1. GitHub Pages を有効にする（Settings → Pages → Branch: `main` / `(root)`）
-2. Androidの Chrome で `https://sato4app.github.io/esp32-cam-stream/` を開き、メニューの「ホーム画面に追加」（またはアプリをインストール）をする
+2. Androidの Chrome で `https://sato4app.github.io/esp32-cam/` を開き、メニューの「ホーム画面に追加」（またはアプリをインストール）をする
 3. 最初に一度だけ、テザリングを登録する
    1. スマホのテザリングをONにし、ESP32-CAMの電源を入れる（登録はここから5分以内）
    2. 入口ページの「Wi-Fiの接続先を登録」にテザリングのWi-Fi名とパスワードを入れ、「ESP32-CAMに送る」→ 一覧の「ESP32-CAM」を選ぶ
