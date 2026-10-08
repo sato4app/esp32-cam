@@ -47,6 +47,18 @@
     #status.connected { background: var(--ok); }
     #status.recording { background: var(--rec); }
     #status.error { background: var(--error); }
+    .headRight { display: flex; align-items: center; gap: 8px; }
+    #quitBtn {
+      font: inherit;
+      font-size: 13px;
+      padding: 4px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.7);
+      background: transparent;
+      color: #fff;
+      cursor: pointer;
+    }
+    #quitBtn:disabled { opacity: 0.5; cursor: default; }
     main { padding: 16px; max-width: 720px; margin: 0 auto; }
 
     /* ===== 映像 ===== */
@@ -291,7 +303,10 @@
 <body>
   <header>
     <h1>ESP32-CAM</h1>
-    <span id="status">接続確認中…</span>
+    <div class="headRight">
+      <span id="status">接続確認中…</span>
+      <button id="quitBtn" type="button">終了</button>
+    </div>
   </header>
 
   <main>
@@ -398,6 +413,8 @@
     const STREAM_URL = `http://${host}:81/stream`;
     const FILE_BASE = `http://${host}:82/sd/`;
     const POLL_MS = 2000;
+    // 終了したら戻る入口ページ。入口ページから開いたときは #back=<入口ページのURL> で渡される
+    const DEFAULT_ENTRY_URL = 'https://sato4app.github.io/esp32-cam/';
     const FILES_PAGE = 30;
     const FRAMESIZE_LABEL = {
       5: '320×240', 8: '640×480', 9: '800×600', 10: '1024×768',
@@ -409,7 +426,7 @@
       status: $('status'), viewer: $('viewer'), stream: $('stream'),
       viewerMsg: $('viewerMsg'), viewerMsgText: $('viewerMsgText'),
       recBadge: $('recBadge'), fpsBadge: $('fpsBadge'), shutterFx: $('shutterFx'),
-      pauseBtn: $('pauseBtn'), fullBtn: $('fullBtn'),
+      pauseBtn: $('pauseBtn'), fullBtn: $('fullBtn'), quitBtn: $('quitBtn'),
       photoBtn: $('photoBtn'), recBtn: $('recBtn'), recLabel: $('recLabel'), snapBtn: $('snapBtn'),
       flash: $('flash'), flashOut: $('flashOut'),
       framesize: $('framesize'), quality: $('quality'), qualityOut: $('qualityOut'),
@@ -430,6 +447,7 @@
     let files = [];
     let filesShown = FILES_PAGE;
     let busy = false;          // 撮影・録画の操作中
+    let quitting = false;      // 終了ボタンを押した後
 
     // ===== 共通 =====
 
@@ -541,6 +559,7 @@
     });
 
     els.pauseBtn.addEventListener('click', () => {
+      if (quitting) return;
       streamWanted = !streamWanted;
       els.pauseBtn.textContent = streamWanted ? '一時停止' : '再開';
       if (streamWanted) {
@@ -574,6 +593,54 @@
         startStream();
         poll();
       }
+    });
+
+    // ===== 終了 =====
+
+    function entryUrl() {
+      const m = location.hash.match(/back=([^&]+)/);
+      if (m) {
+        try {
+          const url = new URL(decodeURIComponent(m[1]));
+          if (url.protocol === 'https:') return url.href;
+        } catch (e) {
+          // 壊れていれば既定の入口ページに戻る
+        }
+      }
+      return DEFAULT_ENTRY_URL;
+    }
+
+    function backToEntry() {
+      location.href = entryUrl();
+    }
+
+    els.quitBtn.addEventListener('click', async () => {
+      if (quitting) return;
+      if (!online) {
+        // 電源が切れているなどでつながらないときは、入口ページに戻るだけ
+        if (confirm('ESP32-CAMにつながっていません。入口ページに戻りますか？')) backToEntry();
+        return;
+      }
+      const what = state && state.recording ? '録画を止めて保存し、ESP32-CAMを終了しますか？' : 'ESP32-CAMを終了しますか？';
+      if (!confirm(`${what}\n終了したら電源を切ってかまいません。もう一度使うときは、電源を入れ直すかRSTボタンを押してください。`)) return;
+
+      quitting = true;
+      streamWanted = false;
+      stopStream();
+      els.quitBtn.disabled = true;
+      try {
+        await api('/api/shutdown', { method: 'POST' });
+      } catch (e) {
+        quitting = false;
+        streamWanted = true;
+        els.quitBtn.disabled = false;
+        startStream();
+        toast(`終了できませんでした: ${e.message}`, true);
+        return;
+      }
+      setStatusChip('終了', '');
+      showViewerMsg('終了しました。電源を切ってかまいません。入口ページに戻ります…');
+      setTimeout(backToEntry, 2000);
     });
 
     // ===== 撮影・録画 =====
@@ -734,7 +801,7 @@
     let polling = false;
     let lastError = '';
     async function poll() {
-      if (polling) return;
+      if (polling || quitting) return;
       polling = true;
       try {
         const s = await api('/api/status', { timeout: 6000 });

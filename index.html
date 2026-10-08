@@ -156,7 +156,7 @@
       </form>
       <p class="sub">
         ESP32-CAMのアクセスポイント（Wi-Fi名「ESP32-CAM」）につないでいるときは
-        <a href="http://192.168.4.1/">http://192.168.4.1/</a> です。
+        <a id="apLink" href="http://192.168.4.1/">http://192.168.4.1/</a> です。
       </p>
     </section>
 
@@ -202,9 +202,15 @@
       el.replaceChildren(...parts.map((p) => (typeof p === 'string' ? document.createTextNode(p) : p)));
     }
 
+    // カメラの画面のURLに、終了したときの戻り先（この入口ページ）を付ける
+    function cameraUrl(url) {
+      const entry = location.href.split('#')[0];
+      return `${url}#back=${encodeURIComponent(entry)}`;
+    }
+
     function link(url) {
       const a = document.createElement('a');
-      a.href = url;
+      a.href = cameraUrl(url);
       a.textContent = url;
       return a;
     }
@@ -232,7 +238,7 @@
       const url = loadLastUrl();
       $('lastCard').hidden = !url;
       if (url) {
-        $('lastLink').href = url;
+        $('lastLink').href = cameraUrl(url);
         $('lastLink').textContent = `${url} を開く`;
       }
     }
@@ -338,7 +344,7 @@
         }
         saveLastUrl(info.url);
         showMsg(findMsg, 'ok', `見つかりました（${info.ssid} に接続中）。開いています… `, link(info.url));
-        location.href = info.url;
+        location.href = cameraUrl(info.url);
       } catch (e) {
         showMsg(findMsg, e.name === 'NotFoundError' ? '' : 'error', errorText(e));
       } finally {
@@ -510,9 +516,10 @@
       }
       const url = `http://${ip}/`;
       saveLastUrl(url);
-      location.href = url;
+      location.href = cameraUrl(url);
     });
 
+    $('apLink').href = cameraUrl('http://192.168.4.1/');
     showLastUrl();
 
     if ('serviceWorker' in navigator) {

@@ -23,6 +23,8 @@ void onViewerConnected();
 // Wi-Fiの接続先が追加・削除されたら一度だけ true を返す
 bool consumeWifiChanged();
 
+void end(); // 終了するときに呼ぶ。Bluetoothを止める
+
 void loop();
 bool active();
 

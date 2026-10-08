@@ -19,6 +19,7 @@ extern const char index_html_end[] asm("_binary_web_index_html_end");
 namespace AppServer {
 
 static volatile int streamClients = 0;
+static volatile bool shutdownFlag = false;
 
 // ===== 共通 =====
 
@@ -197,6 +198,18 @@ static esp_err_t deleteHandler(httpd_req_t *req) {
   return sendResult(req, ok, ok ? "" : "削除できませんでした");
 }
 
+// 終了。録画中なら止めて保存してから応答する。実際に止めるのは main の loop()（応答を届けてから）
+static esp_err_t shutdownHandler(httpd_req_t *req) {
+  if (Camera::recordStatus().recording) {
+    String message;
+    if (!Camera::stopRecording(message)) {
+      return sendResult(req, false, "録画を止められませんでした: " + message);
+    }
+  }
+  shutdownFlag = true;
+  return sendResult(req, true, "");
+}
+
 // 最新の画像を1枚返す（スマホに保存する用）
 static esp_err_t snapshotHandler(httpd_req_t *req) {
   uint8_t *buf = nullptr;
@@ -352,6 +365,7 @@ void begin() {
     {"/api/flash", HTTP_POST, flashHandler, nullptr},
     {"/api/time", HTTP_POST, timeHandler, nullptr},
     {"/api/delete", HTTP_POST, deleteHandler, nullptr},
+    {"/api/shutdown", HTTP_POST, shutdownHandler, nullptr},
   };
   static const httpd_uri_t streamUris[] = {
     {"/stream", HTTP_GET, streamHandler, nullptr},
@@ -364,6 +378,10 @@ void begin() {
   startServer(80, 32768, 4, mainUris, sizeof(mainUris) / sizeof(mainUris[0]));
   startServer(81, 32769, 2, streamUris, 1);
   startServer(82, 32770, 2, fileUris, 1);
+}
+
+bool shutdownRequested() {
+  return shutdownFlag;
 }
 
 } // namespace AppServer

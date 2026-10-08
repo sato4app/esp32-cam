@@ -169,6 +169,24 @@ void startWifi() {
   }
 }
 
+// 画面の「終了」で呼ぶ（録画は止めて保存済み）。Wi-Fi・Bluetooth・カメラ・ライトを止め、CPUを落として待機する。
+// ディープスリープはIRAMに入りきらないため使わない。RSTボタンを押すか電源を入れ直すまで、このまま戻らない
+void powerOff() {
+  delay(500); // 終了の応答を画面に届けてから止める
+
+  Camera::end();
+  Discovery::end();
+  MDNS.end();
+  WiFi.disconnect(true);
+  WiFi.mode(WIFI_OFF);
+  setCpuFrequencyMhz(80);
+
+  Serial.println("画面から終了しました。電源を切ってかまいません（RSTボタンで起動し直せます）");
+  for (;;) {
+    delay(1000);
+  }
+}
+
 void setup() {
   Serial.begin(115200);
   delay(500);
@@ -195,6 +213,9 @@ void setup() {
 }
 
 void loop() {
+  if (AppServer::shutdownRequested()) {
+    powerOff();
+  }
   Discovery::loop();
 
   // Bluetoothで接続先が追加・削除された

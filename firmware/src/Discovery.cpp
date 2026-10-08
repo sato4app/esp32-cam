@@ -193,6 +193,14 @@ void loop() {
   }
 }
 
+void end() {
+  if (running) {
+    NimBLEDevice::deinit(true);
+    resultChar = nullptr;
+    running = false;
+  }
+}
+
 #else
 
 void begin() {}
@@ -202,6 +210,8 @@ void announce(const String &) {
 }
 
 void loop() {}
+
+void end() {}
 
 #endif
 

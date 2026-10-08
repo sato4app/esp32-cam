@@ -38,6 +38,8 @@ static uint32_t recFiles = 0;
 static String errorText;
 
 static bool cameraReady = false;
+static volatile bool stopRequested = false; // end() から撮影タスクへの停止依頼
+static volatile bool taskStopped = false;
 static Settings current;
 static int flashPercent = 0;
 static volatile float currentFps = 0;
@@ -211,6 +213,11 @@ static void cameraTask(void *) {
   unsigned long fpsStartMs = millis();
 
   for (;;) {
+    if (stopRequested) {
+      setStatusLed(false);
+      taskStopped = true;
+      vTaskSuspend(nullptr);
+    }
     camera_fb_t *fb = esp_camera_fb_get();
     if (fb) {
       publishFrame(fb);
@@ -406,6 +413,25 @@ bool begin() {
 
 bool ready() {
   return cameraReady;
+}
+
+void end() {
+  setFlash(0);
+  if (cameraReady) {
+    cameraReady = false;
+    stopRequested = true;
+    // 撮影タスクが画像を返して止まるのを待ってから、カメラを解放する
+    unsigned long start = millis();
+    while (!taskStopped && millis() - start < 3000) {
+      delay(10);
+    }
+    if (taskStopped) {
+      esp_camera_deinit();
+    }
+  }
+  pinMode(PWDN_GPIO_NUM, OUTPUT);
+  digitalWrite(PWDN_GPIO_NUM, HIGH); // カメラの電源を切る
+  digitalWrite(STATUS_LED_PIN, HIGH); // 赤色LEDを消す
 }
 
 size_t copyLatest(uint8_t **buf, size_t *cap, uint32_t *seq, uint32_t timeoutMs) {
