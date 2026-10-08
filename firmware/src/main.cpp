@@ -140,6 +140,8 @@ void startWifi() {
   WiFi.mode(WIFI_STA);
   WiFi.setHostname(HOSTNAME);
   sntp_set_time_sync_notification_cb(onTimeSynced);
+  // Wi-Fiの接続が決まるのを待たずにBluetoothを始め、電源を入れてすぐ入口ページで見つけられるようにする
+  Discovery::begin();
   rebuildWifiList();
 
   bool connected = false;
@@ -147,6 +149,10 @@ void startWifi() {
     Serial.print("Wi-Fiに接続中");
     unsigned long start = millis();
     while (millis() - start < WIFI_CONNECT_TIMEOUT_MS) {
+      // 接続中にBluetoothで接続先が追加・削除されたら、一覧を作り直して試す
+      if (Discovery::consumeWifiChanged()) {
+        rebuildWifiList();
+      }
       if (wifiMulti->run(5000) == WL_CONNECTED) {
         connected = true;
         break;

@@ -166,6 +166,16 @@ static void stop() {
   Serial.println("映像の配信が始まったため、Bluetoothを止めました");
 }
 
+void begin() {
+  {
+    std::lock_guard<std::mutex> lock(infoMutex);
+    infoJson = "{\"mode\":\"WAIT\"}";
+  }
+  if (!running) {
+    start();
+  }
+}
+
 void announce(const String &json) {
   viewerConnected = false;
   {
@@ -184,6 +194,8 @@ void loop() {
 }
 
 #else
+
+void begin() {}
 
 void announce(const String &) {
   WiFi.setSleep(false); // Bluetoothを使わないので、Wi-Fiの省電力は常に切っておく

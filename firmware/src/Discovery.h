@@ -7,7 +7,11 @@
 // 入口ページ（GitHub Pages の index.html）が Web Bluetooth で使う。
 namespace Discovery {
 
-void setPasskey(uint32_t passkey); // ペアリングの6桁の暗証番号。announce() より前に呼ぶ
+void setPasskey(uint32_t passkey); // ペアリングの6桁の暗証番号。begin()・announce() より前に呼ぶ
+
+// Wi-Fiの接続が決まるのを待たずにBluetoothを始める。WiFi.mode() の後に呼ぶ。
+// announce() を呼ぶまでは、情報の読み出しに {"mode":"WAIT"}（Wi-Fiに接続中）を返す
+void begin();
 
 // 知らせる内容（JSON）を設定する。Bluetoothが止まっていれば起動する。
 // loop() と同じタスクから呼ぶこと

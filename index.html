@@ -184,6 +184,7 @@
     const LAST_URL_KEY = 'esp32cam.lastUrl';
     const PAIRING_TIMEOUT_MS = 60000;  // ペアリング画面で暗証番号を入力するのを待つ時間
     const CONNECT_WAIT_MS = 45000;     // 送った接続先にESP32-CAMがつながるのを待つ時間
+    const WIFI_DECIDE_WAIT_MS = 40000; // 電源投入直後、ESP32-CAMのWi-Fiの接続が決まるのを待つ時間
 
     const $ = (id) => document.getElementById(id);
     const findBtn = $('findBtn');
@@ -271,6 +272,21 @@
       return readJson(await getService(), INFO_CHAR_UUID);
     }
 
+    // ESP32-CAMがWi-Fiに接続中（mode: WAIT）なら、つながるかアクセスポイントモードになるまで読み直して待つ
+    async function waitForWifiDecided(info, el) {
+      const deadline = Date.now() + WIFI_DECIDE_WAIT_MS;
+      while (info.mode === 'WAIT' && Date.now() < deadline) {
+        showMsg(el, '', 'ESP32-CAMがWi-Fiにつなぐのを待っています…');
+        await sleep(2000);
+        try {
+          info = await readInfo();
+        } catch (e) {
+          // Wi-Fiの接続中はBluetoothが一時的に切れることがあるので、読み直す
+        }
+      }
+      return info;
+    }
+
     // Wi-Fiの設定コマンドを送り、結果を受け取る。
     // 初回はペアリングが必要で、暗証番号を入力し終わるまで書き込みが失敗するので、つながり直しながら繰り返す
     async function sendCommand(text, el) {
@@ -304,8 +320,13 @@
       try {
         await chooseDevice();
         showMsg(findMsg, '', `${device.name || BLE_NAME} に接続中…`);
-        const info = await readInfo();
+        const info = await waitForWifiDecided(await readInfo(), findMsg);
         device.gatt.disconnect();
+        if (info.mode === 'WAIT') {
+          showMsg(findMsg, 'warn',
+            'ESP32-CAMのWi-Fiの接続がまだ決まりません。少し待ってから、もう一度探してください。');
+          return;
+        }
         if (info.mode === 'AP') {
           // 登録したWi-Fiにつながっておらず、ESP32-CAM自身がアクセスポイントになっている
           showMsg(findMsg, 'warn',
